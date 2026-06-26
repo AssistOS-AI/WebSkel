@@ -51,15 +51,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OutfinityResearch/WebSkel.git"
+    "url": "git+https://github.com/AssistOS-AI/WebSkel.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/OutfinityResearch/WebSkel/issues"
+    "url": "https://github.com/AssistOS-AI/WebSkel/issues"
   },
-  "homepage": "https://github.com/OutfinityResearch/WebSkel#readme",
+  "homepage": "https://github.com/AssistOS-AI/WebSkel#readme",
   "devDependencies": {
     "vite": "^7.1.2"
   }

@@ -61,7 +61,7 @@ jobs:
           else
             # Get latest release version from releases repository and increment patch
             echo "Fetching latest release from webskel-releases..."
-            LATEST_TAG=$(gh release list --repo OutfinityResearch/webskel-releases --limit 1 --json tagName --jq '.[0].tagName // "v0.0.0"' || echo "v0.0.0")
+            LATEST_TAG=$(gh release list --repo AssistOS-AI/webskel-releases --limit 1 --json tagName --jq '.[0].tagName // "v0.0.0"' || echo "v0.0.0")
             echo "Latest tag: $LATEST_TAG"
             
             # Remove 'v' prefix if present and split version
@@ -81,7 +81,7 @@ jobs:
       - name: Checkout releases repository
         uses: actions/checkout@v4
         with:
-          repository: OutfinityResearch/webskel-releases
+          repository: AssistOS-AI/webskel-releases
           token: ${{ secrets.GIT_TOKEN }}
           path: webskel-releases
 
@@ -119,7 +119,7 @@ jobs:
         working-directory: webskel-releases
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" \
-            --repo OutfinityResearch/webskel-releases \
+            --repo AssistOS-AI/webskel-releases \
             --title "${{ steps.version.outputs.version }}" \
             --notes "$(cat <<'EOF'
           ## WebSkel ${{ steps.version.outputs.version }}
