@@ -5,6 +5,7 @@ import * as formUtils from "./utils/form-utils.js";
 import * as modalUtils from "./utils/modal-utils.js";
 import * as templateUtils from "./utils/template-utils.js";
 import * as browserUtils from "./utils/browser-utils.js";
+import { createSecureUuid } from "./utils/uuid.mjs";
 
 class WebSkel {
     constructor() {
@@ -16,6 +17,7 @@ class WebSkel {
         this.ResourceManager = new ResourceManager();
         this.defaultLoader = document.createElement("dialog");
         this.loaderCount = 0;
+        this.activeLoaderId = null;
         this.defaultLoader.classList.add("spinner");
         this.defaultLoader.classList.add("spinner-default-style");
         window.showApplicationError = async (title, message, technical) => {
@@ -71,36 +73,53 @@ class WebSkel {
 
 
     showLoading() {
-        let loader = this.defaultLoader.cloneNode(true);
-        let id = crypto.randomUUID();
-        loader.setAttribute("data-id", id)
+        const id = this.activeLoaderId || createSecureUuid();
         if (this.loaderCount === 0) {
+            let loader = this.defaultLoader.cloneNode(true);
+            loader.setAttribute("data-id", id);
             document.body.appendChild(loader);
             loader.showModal();
-        } else {
-            this.loaderCount++;
+            this.activeLoaderId = id;
+            this.loaderCount = 1;
+            return id;
         }
-        return id;
+        this.loaderCount++;
+        return this.activeLoaderId;
+    }
+
+    clearLoading() {
+        document.querySelectorAll(".spinner").forEach(loader => {
+            loader.close();
+            loader.remove();
+        });
+        this.loaderCount = 0;
+        this.activeLoaderId = null;
     }
 
     hideLoading(id) {
+        if (this.loaderCount <= 0) {
+            this.clearLoading();
+            return;
+        }
         if (this.loaderCount > 1) {
             this.loaderCount--;
             return;
         }
-        if (id) {
-            let loader = document.querySelector(`[data-id = '${id}' ]`);
+        const activeId = this.activeLoaderId || id;
+        if (activeId) {
+            let loader = document.querySelector(`[data-id = '${activeId}' ]`);
             if (loader) {
                 loader.close();
                 loader.remove();
+            } else {
+                this.clearLoading();
+                return;
             }
         } else {
-            let loaderElements = document.querySelectorAll(".spinner");
-            loaderElements.forEach(loader => {
-                loader.close();
-                loader.remove();
-            });
+            this.clearLoading();
         }
+        this.loaderCount = 0;
+        this.activeLoaderId = null;
     }
 
     setLoading(stringHTML) {
@@ -133,8 +152,13 @@ class WebSkel {
                 window.history.pushState({ pageHtmlTagName, relativeUrlContent: result }, path.toString(), path);
             }
             await this.updateAppContent(result);
+            const child = this._appContent.querySelector(pageHtmlTagName);
+            if (child && child.renderCompletePromise) {
+                await child.renderCompletePromise;
+            }
         } catch (error) {
             console.error("Failed to change page", error);
+            await window.showApplicationError("Failed to change page", error.message || "Failed to change page.", error.stack || String(error));
         } finally {
             this.hideLoading(id);
         }
@@ -156,8 +180,14 @@ class WebSkel {
         try {
             const pageContent = await this.fetchTextResult(pageUrl, skipHistoryState);
             await this.updateAppContent(pageContent);
+            const children = this._appContent.querySelectorAll('[data-presenter]');
+            const promises = Array.from(children).map(child => child.renderCompletePromise).filter(Boolean);
+            if (promises.length) {
+                await Promise.all(promises);
+            }
         } catch (error) {
-            console.log("Failed to change page", error);
+            console.error("Failed to change page", error);
+            await window.showApplicationError("Failed to change page", error.message || "Failed to change page.", error.stack || String(error));
         } finally {
             this.hideLoading(loadingId);
         }
@@ -208,9 +238,31 @@ class WebSkel {
 
     registerListeners() {
         this._documentElement.addEventListener("click", this.interceptAppContentLinks.bind(this));
-        window.onpopstate = (e) => {
+        window.onpopstate = async (e) => {
+            if (typeof this._appContent?.querySelector !== "function") {
+                return;
+            }
+            const hash = window.location.hash;
+            if (hash) {
+                const hashContent = hash.substring(1);
+                const pageName = hashContent.split("/")[0].split("?")[0];
+                const knownPage = this.configs.components.find(component => component.name === pageName);
+                if (knownPage) {
+                    const existing = this._appContent.querySelector(pageName);
+                    if (existing && existing.webSkelPresenter) {
+                        return;
+                    }
+                    await this.changeToDynamicPage(pageName, hashContent, null, true);
+                    return;
+                }
+            }
             if (e.state && e.state.relativeUrlContent) {
-                this.updateAppContent(e.state.relativeUrlContent);
+                await this.updateAppContent(e.state.relativeUrlContent);
+                const children = this._appContent.querySelectorAll('[data-presenter]');
+                const promises = Array.from(children).map(child => child.renderCompletePromise).filter(Boolean);
+                if (promises.length) {
+                    await Promise.all(promises);
+                }
             }
         };
 
@@ -464,6 +516,26 @@ class WebSkel {
                             this.onPresenterReady = resolve;
                         });
                         this.isPresenterReady = false;
+                        this.renderCompletePromise = null;
+                        this.onRenderComplete = null;
+                        this.resetRenderCompletePromise();
+                    }
+
+                    resetRenderCompletePromise() {
+                        if (typeof this.onRenderComplete === "function") {
+                            this.onRenderComplete();
+                            this.onRenderComplete = null;
+                        }
+                        this.renderCompletePromise = new Promise(resolve => {
+                            this.onRenderComplete = resolve;
+                        });
+                    }
+
+                    resolveRenderComplete() {
+                        if (typeof this.onRenderComplete === "function") {
+                            this.onRenderComplete();
+                            this.onRenderComplete = null;
+                        }
                     }
 
                     invalidateProxy() {
@@ -495,12 +567,14 @@ class WebSkel {
                         if (presenter) {
                             const invalidate = async (loadDataAsyncFunction) => {
                                 const displayError = (e) => {
-                                    self.innerHTML = `Error rendering component: ${self.componentName}\n: ` + e + e.stack.split('\n')[1];
+                                    const stackLine = e?.stack ? e.stack.split('\n')[1] || "" : "";
+                                    self.innerHTML = `Error rendering component: ${self.componentName}\n: ` + e + stackLine;
                                     console.error(e);
-                                    WebSkel.instance.hideLoading();
+                                    self.resolveRenderComplete();
                                 }
                                 const renderPage = async () => {
                                     try {
+                                        self.resetRenderCompletePromise();
                                         await self.webSkelPresenter.beforeRender();
                                         for (let vn in self.variables) {
                                             if (typeof self.webSkelPresenter[vn] !== "undefined") {
@@ -508,21 +582,24 @@ class WebSkel {
                                             }
                                         }
                                         self.refresh();
+                                        await WebSkel.instance.ResourceManager.waitForDescendantRenders(self);
                                         await self.webSkelPresenter.afterRender?.();
+                                        self.resolveRenderComplete();
                                     } catch (e) {
                                         displayError(e);
                                     }
                                 };
-                                WebSkel.instance.showLoading();
-                                if (loadDataAsyncFunction) {
-                                    try {
+                                const loadingId = WebSkel.instance.showLoading();
+                                try {
+                                    if (loadDataAsyncFunction) {
                                         await loadDataAsyncFunction();
-                                    } catch (error) {
-                                        return displayError(error);
                                     }
+                                    await renderPage();
+                                } catch (error) {
+                                    displayError(error);
+                                } finally {
+                                    WebSkel.instance.hideLoading(loadingId);
                                 }
-                                await renderPage();
-                                WebSkel.instance.hideLoading();
                             }
                             const invalidateProxy = new Proxy(invalidate, {
                                 apply: async function (target, thisArg, argumentsList) {
@@ -537,6 +614,7 @@ class WebSkel {
                             self.webSkelPresenter = WebSkel.instance.ResourceManager.initialisePresenter(presenter, self, invalidateProxy, this.props);
                         } else {
                             self.refresh();
+                            self.resolveRenderComplete();
                         }
                     }
 

@@ -13,7 +13,7 @@ const { pathToFileURL } = require('node:url');
 async function main() {
   const projectRoot = path.resolve(__dirname, '..');
   const distDir = path.join(projectRoot, 'dist');
-  const esPath = path.join(distDir, 'webskel.es.js');
+  const esPath = path.join(distDir, 'webskel.mjs');
   const umdPath = path.join(distDir, 'webskel.umd.js');
 
   console.log('Building library with Vite...');
@@ -39,6 +39,9 @@ async function main() {
   if (typeof esmExport.initialise !== 'function') {
     throw new Error('ESM export does not expose static initialise()');
   }
+  if (typeof esm.createSecureUuid !== 'function') {
+    throw new Error('ESM build does not export createSecureUuid()');
+  }
 
   console.log('Requiring UMD build...');
   // eslint-disable-next-line import/no-dynamic-require, global-require
@@ -50,6 +53,14 @@ async function main() {
   if (typeof umdExport.initialise !== 'function') {
     throw new Error('UMD export does not expose static initialise()');
   }
+  if (typeof umd.createSecureUuid !== 'function') {
+    throw new Error('UMD build does not export createSecureUuid()');
+  }
+  const cryptoApi = { getRandomValues(bytes) { bytes.fill(0); return bytes; } };
+  const expected = '00000000-0000-4000-8000-000000000000';
+  if (esm.createSecureUuid(cryptoApi) !== expected || umd.createSecureUuid(cryptoApi) !== expected) {
+    throw new Error('Built UUID helpers must work without crypto.randomUUID()');
+  }
 
   console.log('Build validation passed. Dist artifacts are present and loadable.');
 }
@@ -58,5 +69,4 @@ main().catch((err) => {
   console.error('\nBuild validation failed:\n', err?.stack || err?.message || err);
   process.exit(1);
 });
-
 

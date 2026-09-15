@@ -1,6 +1,9 @@
 // Main WebSkel class
 export { default as WebSkel } from './webSkel.js';
 
+// Secure browser identifiers, including plain-HTTP LAN origins.
+export { createSecureUuid } from './utils/uuid.mjs';
+
 // Utility functions from dom-utils.js
 export {
     moveCursorToEnd,

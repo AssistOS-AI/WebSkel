@@ -81,6 +81,28 @@ await loadConfigs("./path/to/configs.json");
 - [AI Agent Development Prompt](webskel-guide.md#6-ai-agent-development-prompt)
 - [Troubleshooting](webskel-guide.md#7-troubleshooting)
 
+## Browser UUID compatibility
+
+WebSkel's loader and the exported `createSecureUuid()` helper generate UUIDv4
+identifiers on HTTPS, loopback HTTP, and plain-HTTP LAN origins. The helper uses
+`crypto.randomUUID()` when available and otherwise uses
+`crypto.getRandomValues()`. It never substitutes timestamps or `Math.random()`
+for secure randomness. If neither browser API is available, it throws an error
+with code `WEB_CRYPTO_UNAVAILABLE` before returning an identifier.
+
+```javascript
+import { createSecureUuid } from './dist/webskel.mjs';
+
+const documentId = `document-${createSecureUuid()}`;
+```
+
+The implementation lives in `utils/uuid.mjs` and is imported by `webSkel.js`.
+Edit source files, then run `npm test` and `npm run test:build` to regenerate and
+verify the ESM and UMD distributions. Applications that vendor WebSkel should
+copy the generated `dist/webskel.mjs`, `dist/webskel.umd.js`, and `LICENSE`.
+Do not hand-edit bundled output. Existing loader reference counting, render
+completion, and navigation behavior are implemented and tested in source.
+
 ## Dependencies
 
 WebSkel is built with JavaScript and is intended to be used in a browser environment. It does not have any external dependencies.

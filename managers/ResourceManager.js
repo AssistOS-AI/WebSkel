@@ -151,4 +151,13 @@ export class ResourceManager {
         }
         return presenter;
     }
+
+    async waitForDescendantRenders(element) {
+        await Promise.resolve();
+        const descendants = [...element.querySelectorAll("[data-presenter]")].filter(child => child !== element);
+        const promises = descendants.map(child => child.renderCompletePromise).filter(promise => promise && typeof promise.then === "function");
+        if (promises.length) {
+            await Promise.allSettled(promises);
+        }
+    }
 }
